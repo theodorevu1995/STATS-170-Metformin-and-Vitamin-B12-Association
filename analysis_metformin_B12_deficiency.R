@@ -1431,6 +1431,263 @@ wilcox.test(num_B12_normal~cohort, data2)
 wilcox.test(num_B12_measurement~cohort, data2)
 wilcox.test(CCI~cohort, data2)
     
+### BEGIN STATISTICAL MODELING ###
+data_metformin_temp <- data_metformin2 %>%
+    mutate(race = case_when(race == "Black or African American" ~ "Black",
+                            race == "White" ~ "White",
+                            TRUE ~ "Other"),
+           ethnicity = case_when(ethnicity == "Hispanic or Latino" ~ "Hispanic",
+                                 ethnicity == "Not Hispanic or Latino" ~ "Non-Hispanic",
+                                 TRUE ~ "Other"),
+           sex_at_birth = case_when(sex_at_birth == "Female" ~ "Female",
+                                    sex_at_birth == "Male" ~ "Male",
+                                    TRUE ~ "Other"),
+           education = case_when(education == "Less than a high school degree or equivalent" ~ 0,
+                                 education == "Twelve Or GED" ~ 1,
+                                 education == "College One to Three" ~ 2,
+                                 education == "College graduate or advanced degree" ~ 3,
+                                 TRUE ~ as.numeric(NA)),
+           education = as.integer(education),
+           marital_status = case_when(marital_status == "Married" ~ "Married",
+                                      marital_status == "Never Married" ~ "Non-Married",
+                                      TRUE ~ "Other"),
+           insurance_status = case_when(insurance_status == "Yes" ~ "Yes",
+                                        insurance_status == "No" ~ "No",
+                                        TRUE ~ "Other"),
+           annual_income = case_when(annual_income == "less 10k" ~ 1,
+                                     annual_income == "10k 25k" ~ 2,
+                                     annual_income == "25k 35k" ~ 3,
+                                     annual_income == "35k 50k" ~ 4,
+                                     annual_income == "50k 75k" ~ 5,
+                                     annual_income == "75k 100k" ~ 6,
+                                     annual_income == "100k 150k" ~ 7,
+                                     annual_income == "150k 200k" ~ 8,
+                                     annual_income == "more 200k" ~ 9,
+                                     TRUE ~ as.numeric(NA)),
+           annual_income = as.integer(annual_income),
+           average_daily_drink = case_when(average_daily_drink == "1 or 2" ~ 1,
+                                           average_daily_drink == "3 or 4" ~ 2,
+                                           average_daily_drink == "5 or 6" ~ 3,
+                                           average_daily_drink == "7 to 9" ~ 4,
+                                           average_daily_drink == "10 or More" ~ 5,
+                                           TRUE ~ as.numeric(NA)),
+           average_daily_drink = as.integer(average_daily_drink),
+           smoking_frequency = case_when(smoking_frequency == "Not At All" ~ 0,
+                                         smoking_frequency == "Some Days" ~ 1,
+                                         smoking_frequency == "Every Day" ~ 2,
+                                         TRUE ~ as.numeric(NA)),
+           smoking_frequency = as.integer(smoking_frequency),
+           overall_health = case_when(overall_health == "Poor" ~ 1,
+                                      overall_health == "Fair" ~ 2,
+                                      overall_health == "Good" ~ 3,
+                                      overall_health == "Very Good" ~ 4,
+                                      overall_health == "Excellent" ~ 5,
+                                      TRUE ~ as.numeric(NA)),
+           overall_health = as.integer(overall_health),
+           have_B12_deficiency = case_when(have_B12_deficiency == "Yes" ~ 1,
+                                           have_B12_deficiency == "No" ~ 0),
+           have_B12_deficiency = as.integer(have_B12_deficiency),
+           long_term_metformin = case_when(metformin_year >= 7 ~ 1,
+                                           metformin_year < 7 ~ 0))
+glimpse(data_metformin_temp)
+
+glimpse(data)
+
+data <- data %>%
+    mutate(B12def = ifelse(B12_category=="Deficiency",1,0))
+
+table(data$B12def)
+table(data$cohort, data$B12def)
+
+model <- glm(have_B12_deficiency ~ age + race + ethnicity + sex_at_birth + education +
+                                   marital_status + insurance_status + annual_income + 
+                                   smoking_years + average_daily_drink + overall_health +
+                                   metformin_year + PPIs_year + CCI + 
+                                   CCI*smoking_years + CCI*average_daily_drink,
+             data = data_metformin_temp, family = "binomial"(link = "logit"))
+summary(model)
+
+car::vif(model)
+
+library(pROC)
+options(repr.plot.width=6, repr.plot.height=6)
+roc.curve = roc(data_metformin_temp$B12_deficiency~fitted(model))
+plot(roc.curve, cex=2, main="ROC Curve",
+     cex.main=1.75, cex.lab=1.75, cex.axis=1.4, mgp=c(2.5,1,0))
+roc.curve
+
+ifelse1 =function(test, x, y){ if (test) x else y}
+glmCI <- function( model, transform=TRUE, robust=FALSE ){
+	link <- model$family$link
+	coef <- summary( model )$coef[,1]
+	se <- ifelse1( robust, robust.se.glm(model)[,2], summary( model )$coef[,2] )
+	zvalue <- coef / se
+	pvalue <- 2*(1-pnorm(abs(zvalue)))
+
+	if( transform & is.element(link, c("logit","log")) ){
+		ci95.lo <- exp( coef - qnorm(.975) * se )
+		ci95.hi <- exp( coef + qnorm(.975) * se )
+		est <- exp( coef )
+	}
+	else{
+		ci95.lo <- coef - qnorm(.975) * se
+		ci95.hi <- coef + qnorm(.975) * se
+		est <- coef
+	}
+	rslt <- round( cbind( est, ci95.lo, ci95.hi, zvalue, pvalue ), 4 )
+	colnames( rslt ) <- ifelse1( 	robust, 	
+					c("Est", "robust ci95.lo", "robust ci95.hi", "robust z value", "robust Pr(>|z|)"),
+					c("Est", "ci95.lo", "ci95.hi", "z value", "Pr(>|z|)") )			
+	colnames( rslt )[1] <- ifelse( transform & is.element(link, c("logit","log")), "exp( Est )", "Est" )
+	rslt
+	}
+         
+glmCI(model)
+                              
+probabilities <- predict(model, type = "response")
+predicted.classes <- ifelse(probabilities > 0.5, "pos", "neg")
+head(predicted.classes)
+
+logit = log(probabilities/(1-probabilities))      
+                              
+options(repr.plot.width=6, repr.plot.height=6)
+presids = residuals( model, type="pearson" )
+muhat = fitted( model )
+plot(muhat, presids^2, xlab="fitted expected counts", ylab="Pearson Residual Squared",
+     cex=1.5, main="Residuals versus the fitted values", cex.main=1.75, cex.lab=1.75, cex.axis=1.4, mgp=c(2.5,1,0))
+sfit = supsmu( muhat, presids^2 )
+lines( sfit$x[ order( sfit$x ) ], sfit$y[ order( sfit$x ) ],, col="red", lwd=2 )
+                              
+mydata <- data_metformin_temp %>%
+    select(age, metformin, PPIs, CCI) 
+predictors <- colnames(mydata)
+
+mydata <- mydata %>%
+  mutate(logit = log(probabilities/(1-probabilities))) %>%
+  gather(key = "predictors", value = "predictor.value", -logit)
+
+options(repr.plot.width=12, repr.plot.height=4)
+ggplot(mydata, aes(predictor.value, logit))+
+    geom_point(size = 0.5, alpha = 0.5) +
+    geom_smooth(formula = "y~x", method = "loess") + 
+    theme_bw() + 
+    facet_grid(~predictors, scales = "free_x") + 
+    labs(x="predictor value",
+         y="logit", mgp=c(2.5,1,0)) +
+    theme(axis.text.x = element_text(face="plain", color="black", size=16, angle=0),
+          axis.text.y = element_text(face="plain", color="black", size=16, angle=0),
+          plot.title = element_text(size = 20, face = 'plain', hjust = 0.5),
+          axis.title = element_text(size = 20, face = 'plain'),
+          strip.text.x = element_text(size = 20, face = 'plain'),
+          text = element_text(size=20))
+                              
+binary.gof <- function( fit, ngrp=10, print.table=TRUE ){
+	y <- fit$y
+	phat <- fitted( fit )
+	fittedgrps <- cut( phat, quantile( phat, seq(0,1,by=1/ngrp) ), include.lowest=TRUE )
+	n <- aggregate( y, list( fittedgrps ), FUN=length )[,2]
+	Obs <- aggregate( y, list( fittedgrps ), FUN=sum )[,2]
+	Exp <- aggregate( phat, list( fittedgrps ), FUN=sum )[,2]
+	if( print.table==TRUE ){
+		cat( "\nFitted Probability Table:\n\n" )
+		rslt <- as.data.frame( cbind( 1:ngrp, n, Obs, Exp ) )
+		names( rslt )[1] <- "group"
+		print( rslt )
+	}
+	chisqstat <- sum( (Obs - Exp)^2 / ( Exp*(1-Exp/n) ) )
+	df <- ngrp-2
+	pVal <- pchisq( chisqstat, df, lower.tail=FALSE )
+	cat( "\n Hosmer-Lemeshow GOF Test:\n\n" )
+	cbind( chisqstat, df, pVal )
+}      
+                              
+binary.gof(model_test)                              
+
+robust.se.glm<-function(glm.obj){
+	## 	Compute robust (sandwich) variance estimate
+	if (is.matrix(glm.obj$x)) 
+		xmat<-glm.obj$x
+	else {
+		mf<-model.frame(glm.obj)
+		xmat<-model.matrix(terms(glm.obj),mf)		
+	}
+	umat <- residuals(glm.obj,"working")*glm.obj$weights*xmat
+	modelv<-summary(glm.obj)$cov.unscaled
+	robust.cov <- modelv%*%(t(umat)%*%umat)%*%modelv
+	
+	##	Format the model output with p-values and CIs
+	s <- summary( glm.obj) 
+	robust.se <- sqrt( diag( robust.cov )) 
+	z <- glm.obj$coefficients/robust.se
+	p <- 2*pnorm( -abs( z ) ) 
+	ci95.lo <- glm.obj$coefficients - qnorm( .975 ) * robust.se
+	ci95.hi <- glm.obj$coefficients + qnorm( .975 ) * robust.se
+	rslt <- cbind( glm.obj$coefficients, robust.se, ci95.lo, ci95.hi, z, p ) 
+	dimnames(rslt)[[2]] <- c( dimnames( s$coefficients )[[2]][1], "Robust SE", "ci95.lo", "ci95.hi", dimnames( s$coefficients )[[2]][3:4] ) 
+	rslt 
+	}
+                              
+options(repr.plot.width=4.5, repr.plot.height=4.5)
+cooksd <- cooks.distance(model_test)
+plot(cooksd, pch="*", cex=2, main="Influential Observations",
+     cex.main=1.45, cex.lab=1.75, cex.axis=1.4, xlab = "index", ylab = "cook's distance",
+     mgp=c(2.5,1,0))  # plot cook's distance 
+abline(h = 4*mean(cooksd, na.rm=T), col="red")  # add cutoff line
+text(x=1:length(cooksd)+1, y=cooksd, labels=ifelse(cooksd>4*mean(cooksd, na.rm=T),names(cooksd),""), col="red")  # add labels
+                              
+options(repr.plot.width=12, repr.plot.height=6)
+data_metformin_temp1 %>% 
+    filter(gender != "Other") %>% 
+    mutate(gender = case_when(gender == "Female" ~ "FEMALE",
+                              TRUE ~ "MALE")) %>%
+    ggplot(aes(x = age)) +
+    geom_histogram(bins = 25, fill = "#0066cc", color = "white") +
+    labs(x="age",
+         y="number of participants") +
+    ggtitle("Distribution of age") +
+    facet_grid(~gender) +
+    theme_light() +
+    theme(axis.text.x = element_text(face="plain", color="black", size=16, angle=0),
+          axis.text.y = element_text(face="plain", color="black", size=16, angle=0),
+          plot.title = element_text(size = 25, face = 'plain', hjust = 0.5),
+          axis.title = element_text(size = 20, face = 'plain'),
+          strip.text.x = element_text(size = 20, face = 'bold'),
+          text = element_text(size=17),
+          legend.position = c(0.82, 0.99),
+          legend.justification = c(0.01, 0.99), 
+          legend.box.spacing = unit(0, "pt"),
+          legend.title = element_text(size = 20),
+          legend.text = element_text(size = 20))
+                              
+options(repr.plot.width=12, repr.plot.height=6)
+data_metformin_temp %>% 
+    mutate(PPIs_usage_before = case_when(PPIs_usage_before == "Yes" ~ "USE PPIs",
+                                         TRUE ~ "NO USE PPIs")) %>%
+    mutate(have_B12_deficiency = case_when(have_B12_deficiency == 1 ~ "yes",
+                                           have_B12_deficiency == 0 ~ "no")) %>%
+    count(metformin_year, have_B12_deficiency, PPIs_usage_before) %>%
+    ggplot(aes(x = metformin_year, y = n, color = as.factor(have_B12_deficiency))) +
+    geom_point(size = 2.5) +
+    geom_line(size = 1.2) +
+    facet_wrap(~PPIs_usage_before) +
+    scale_color_manual(name="B12 deficiency", values=c("#E69F00", "#56B4E9")) +    
+    theme_light() + 
+    labs(x="years of using metformin",
+         y="number of participants") +
+    ggtitle("Number of people who have B12 deficiency and who do not have B12 deficiency") +
+    theme(axis.text.x = element_text(face="plain", color="black", size=16, angle=0),
+          axis.text.y = element_text(face="plain", color="black", size=16, angle=0),
+          plot.title = element_text(size = 20, face = 'plain', hjust = 0.5),
+          axis.title = element_text(size = 20, face = 'plain'),
+          strip.text.x = element_text(size = 20, face = 'bold'),
+          text = element_text(size=17),
+          legend.position = c(0.82, 0.99),
+          legend.justification = c(0.01, 0.99), 
+          legend.box.spacing = unit(0, "pt"),
+          legend.title = element_text(size = 18),
+          legend.text = element_text(size = 18))                              
+                              
+                              
 
 
 
