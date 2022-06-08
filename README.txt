@@ -1,4 +1,4 @@
-Our data is stored in All Of Us (AoU Research database, and we have to work on the AoU workbench.
+Our data is stored in All Of Us (AoU) Research database, and we have to work on the AoU workbench.
 We cannot extract the data out of the workbench, and all of our work is on one jupyter notebook file.
 We cannot download the code file from the workbench also, so we copy them to the R files here.
 The load and save data R file consists of the generated code from AoU workbench to load and store
