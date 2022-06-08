@@ -1351,23 +1351,3 @@ library(bigrquery)
 # system(paste0("gsutil ls ", my_bucket, "/data/*.csv"), intern=T)
 
 ### END Saving Data to Workspace ###
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
